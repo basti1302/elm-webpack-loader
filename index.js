@@ -16,12 +16,11 @@ var defaultOptions = {
   yes: true
 };
 
-var getInput = function (options) {
+var getInputFiles = function (options) {
+  var inputFiles;
   var input = this.resourcePath;
-
   if (options.modules) {
     var modules = options.modules;
-
     if (!Array.isArray(modules)) {
       throw new Error('modules option must be an array');
     }
@@ -30,12 +29,14 @@ var getInput = function (options) {
       modules.push(input);
     }
 
-    input = modules;
-
+    inputFiles = modules;
     delete options.modules;
+  } else {
+    // normalize input to array
+    inputFiles = [ input ];
   }
   console.log('INPUT', input);
-  return input;
+  return inputFiles;
 };
 
 var getOptions = function() {
@@ -107,7 +108,7 @@ module.exports = function() {
   var emitError = this.emitError.bind(this);
 
   var options = getOptions.call(this);
-  var input = getInput.call(this, options);
+  var inputFiles = getInputFiles.call(this, options);
 
   var promises = [];
 
@@ -126,16 +127,19 @@ module.exports = function() {
 
     // find all the deps, adding them to the watch list if we successfully parsed everything
     // otherwise return an error which is currently ignored
-    var dependencies = elmCompiler.findAllDependencies(input).then(function(dependencies){
-      // add each dependency to the tree
-      dependencies.map(addDependencies);
-      return { kind: 'success', result: true };
-    }).catch(function(v){
-      emitError(v);
-      return { kind: 'error', error: v };
-    })
-
-    promises.push(dependencies);
+    var dependenciesPromises = inputFiles.map(function(inputPath) {
+      return elmCompiler
+        .findAllDependencies(inputPath)
+        .then(function(dependencies){
+          // add each dependency to the tree
+          dependencies.map(addDependencies);
+          return { kind: 'success', result: true };
+        }).catch(function(v){
+          emitError(v);
+          return { kind: 'error', error: v };
+        });
+    });
+    promises.push(dependenciesPromises);
   }
 
   var maxInstances = options.maxInstances;
@@ -153,12 +157,20 @@ module.exports = function() {
 
     // If we are running in watch mode, and we have previously compiled
     // the current file, then let the user know that elm-make is running
-    // and can be slow
-    if (alreadyCompiledFiles.indexOf(input) > -1){
-      console.log('Started compiling Elm..');
+    // and can be slow.
+    var compileRequired = false;
+    inputFiles.forEach(function(inputPath) {
+      if (alreadyCompiledFiles.indexOf(inputPath) >= 0){
+        compileRequired = true;
+      }
+    });
+    if (compileRequired) {
+      console.log('Running elm-make...');
     }
 
-    var compilation = elmCompiler.compileToString(input, options)
+    // elmCompiler.compileToString can cope with a single file path (string) or
+    // an array of paths, we always pass an array of paths.
+    var compilation = elmCompiler.compileToString(inputFiles, options)
       .then(function(v) { runningInstances -= 1; return { kind: 'success', result: v }; })
       .catch(function(v) { runningInstances -= 1; return { kind: 'error', error: v }; });
 
@@ -169,7 +181,7 @@ module.exports = function() {
         var output = results[results.length - 1]; // compilation output is always last
 
         if (output.kind == 'success') {
-          alreadyCompiledFiles.push(input);
+          alreadyCompiledFiles = alreadyCompiledFiles.concat(inputFiles);
           callback(null, output.result);
         } else {
           output.error.message = 'Compiler process exited with error ' + output.error.message;
