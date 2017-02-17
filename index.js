@@ -34,6 +34,7 @@ var getInput = function (options) {
 
     delete options.modules;
   }
+  console.log('INPUT', input);
   return input;
 };
 
