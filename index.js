@@ -35,7 +35,6 @@ var getInputFiles = function (options) {
     // normalize input to array
     inputFiles = [ input ];
   }
-  console.log('INPUT', input);
   return inputFiles;
 };
 
@@ -128,6 +127,7 @@ module.exports = function() {
     // find all the deps, adding them to the watch list if we successfully parsed everything
     // otherwise return an error which is currently ignored
     var dependenciesPromises = inputFiles.map(function(inputPath) {
+      addDependencies(inputPath);
       return elmCompiler
         .findAllDependencies(inputPath)
         .then(function(dependencies){
